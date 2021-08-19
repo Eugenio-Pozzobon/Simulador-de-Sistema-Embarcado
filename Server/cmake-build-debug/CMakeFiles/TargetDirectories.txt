@@ -1,0 +1,3 @@
+E:/Git/Simulador-de-Sistema-Embarcado/Server/cmake-build-debug/CMakeFiles/Server.dir
+E:/Git/Simulador-de-Sistema-Embarcado/Server/cmake-build-debug/CMakeFiles/edit_cache.dir
+E:/Git/Simulador-de-Sistema-Embarcado/Server/cmake-build-debug/CMakeFiles/rebuild_cache.dir
