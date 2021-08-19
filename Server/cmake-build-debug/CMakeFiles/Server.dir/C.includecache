@@ -21,4 +21,6 @@ Ws2tcpip.h
 -
 pthread.h
 -
+stdbool.h
+-
 

@@ -5,6 +5,7 @@
 #include <winsock2.h>
 #include <Ws2tcpip.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 #pragma comment (lib, "Ws2_32.lib")
 
@@ -13,20 +14,71 @@
 
 pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
 
+int iResult;
+int iSendResult;
+char recvbuf[DEFAULT_BUFLEN];
+int recvbuflen = DEFAULT_BUFLEN;
+
+SOCKET ListenSocket = INVALID_SOCKET;
+SOCKET ClientSocket = INVALID_SOCKET;
+
+//
+_Noreturn void *software_send() {
+    do {
+
+        const char *sendbuf = "this is a test";
+        iResult = send( ClientSocket, sendbuf, (int)strlen(sendbuf), 0 );
+        if (iResult == SOCKET_ERROR) {
+            printf("send failed with error: %d\n", WSAGetLastError());
+            closesocket(ClientSocket);
+            WSACleanup();
+        }
+
+        printf("Bytes Sent: %ld\n", iResult);
+
+    } while (iResult > 0);
+
+    // shutdown the connection since we're done
+    iResult = shutdown(ClientSocket, SD_SEND);
+    if (iResult == SOCKET_ERROR) {
+        printf("shutdown failed with error: %d\n", WSAGetLastError());
+        closesocket(ClientSocket);
+        WSACleanup();
+    }
+
+    // cleanup
+    closesocket(ClientSocket);
+    WSACleanup();
+}
+
+//
+_Noreturn void *software_recieve() {
+    // Receive until the peer closes the connection
+    do {
+
+        iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
+        if ( iResult > 0 )
+            printf("Bytes received: %d\n", iResult);
+        else if ( iResult == 0 )
+            printf("Connection closed\n");
+        else
+            printf("recv failed with error: %d\n", WSAGetLastError());
+
+    } while( iResult > 0 );
+
+    // cleanup
+    closesocket(ClientSocket);
+    WSACleanup();
+}
+
 int main(int argc, char *argv[]) {
 
     WSADATA wsaData;
-    int iResult;
-
-    SOCKET ListenSocket = INVALID_SOCKET;
-    SOCKET ClientSocket = INVALID_SOCKET;
 
     struct addrinfo *result = NULL;
     struct addrinfo hints;
 
-    int iSendResult;
-    char recvbuf[DEFAULT_BUFLEN];
-    int recvbuflen = DEFAULT_BUFLEN;
+
 
     // Initialize Winsock
     iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
@@ -88,49 +140,17 @@ int main(int argc, char *argv[]) {
     }
 
     // No longer need server socket
-    //closesocket(ListenSocket);
+    // closesocket(ListenSocket);
 
     // Receive until the peer shuts down the connection
-    do {
 
-        iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-        if (iResult > 0) {
-            printf("Message: %s\n", recvbuf);
-            printf("Bytes received: %d\n", iResult);
+    pthread_t sendThread, recieveThread;
 
-            // Echo the buffer back to the sender
-            iSendResult = send( ClientSocket, recvbuf, iResult, 0 );
-            if (iSendResult == SOCKET_ERROR) {
-                printf("send failed with error: %d\n", WSAGetLastError());
-                closesocket(ClientSocket);
-                WSACleanup();
-                return 1;
-            }
-            printf("Bytes sent: %d\n", iSendResult);
-        }
-        else if (iResult == 0)
-            printf("Connection closing...\n");
-        else  {
-            printf("recv failed with error: %d\n", WSAGetLastError());
-            closesocket(ClientSocket);
-            WSACleanup();
-            return 1;
-        }
+    pthread_create(&sendThread, NULL, software_send, NULL);
+    pthread_create(&recieveThread, NULL, software_recieve, NULL);
 
-    } while (iResult > 0);
-
-    // shutdown the connection since we're done
-    iResult = shutdown(ClientSocket, SD_SEND);
-    if (iResult == SOCKET_ERROR) {
-        printf("shutdown failed with error: %d\n", WSAGetLastError());
-        closesocket(ClientSocket);
-        WSACleanup();
-        return 1;
-    }
-
-    // cleanup
-    closesocket(ClientSocket);
-    WSACleanup();
+    pthread_join(sendThread, NULL);
+    pthread_join(recieveThread, NULL);
 
     return 0;
 }
