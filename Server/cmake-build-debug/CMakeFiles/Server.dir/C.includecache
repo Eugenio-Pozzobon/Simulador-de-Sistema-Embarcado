@@ -15,8 +15,6 @@ string.h
 -
 unistd.h
 -
-sys/types.h
--
 winsock2.h
 -
 Ws2tcpip.h
