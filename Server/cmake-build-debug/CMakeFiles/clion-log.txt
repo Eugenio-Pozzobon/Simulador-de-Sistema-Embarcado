@@ -1,10 +1,4 @@
 C:\Users\eugen\AppData\Local\JetBrains\Toolbox\apps\CLion\ch-0\212.4746.93\bin\cmake\win\bin\cmake.exe -DCMAKE_BUILD_TYPE=Debug -DCMAKE_DEPENDS_USE_COMPILER=FALSE -G "CodeBlocks - MinGW Makefiles" E:\Git\Simulador-de-Sistema-Embarcado\Server
--- The C compiler identification is GNU 4.9.2
--- Detecting C compiler ABI info
--- Detecting C compiler ABI info - done
--- Check for working C compiler: C:/Program Files (x86)/Dev-Cpp/MinGW64/bin/gcc.exe - skipped
--- Detecting C compile features
--- Detecting C compile features - done
 -- Configuring done
 -- Generating done
 -- Build files have been written to: E:/Git/Simulador-de-Sistema-Embarcado/Server/cmake-build-debug

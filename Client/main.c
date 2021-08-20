@@ -1,3 +1,4 @@
+// Cliente - Simulador
 
 #include <winsock2.h>
 #include <Ws2tcpip.h>
@@ -5,8 +6,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <sys/types.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 // Need to link with Ws2_32.lib, Mswsock.lib, and Advapi32.lib
 #pragma comment (lib, "Ws2_32.lib")
@@ -16,24 +17,61 @@
 
 SOCKET ConnectSocket = INVALID_SOCKET;
 char recvbuf[DEFAULT_BUFLEN];
-int iResult;
+int iResult, sendResult, recvResult;
 int recvbuflen = DEFAULT_BUFLEN;
 
-//
-_Noreturn void *software_send() {
-    do {
+int analogRead[8];
+byte canRead[8];
 
-        const char *sendbuf = "this is a test";
-        iResult = send(ConnectSocket, sendbuf, (int)strlen(sendbuf), 0 );
-        if (iResult == SOCKET_ERROR) {
+FILE *fp, *fcan;
+
+_Noreturn void *readAnalogicData() {
+    while(true){
+        for(int i = 0; i < 8 ; i++){
+            analogRead[i] = rand() % 1024;
+        }
+    }
+}
+
+_Noreturn void *readCanData() {
+
+}
+
+_Noreturn void *sendTelemetryData() {
+
+}
+
+_Noreturn void *saveData() {
+    while(true){ // inserir condição para interromper gravação e salvar dados
+        for(int i = 0; i<8; i++){
+            fprintf(fp, ",%d", canRead[i]);
+        }
+        for(int i = 0; i<8; i++){
+            fprintf(fp, ",%d", analogRead[i]);
+        }
+    }
+    fclose(fp);
+}
+
+_Noreturn void *sendBluetoothData() {
+
+}
+
+//
+_Noreturn void *socketSend() {
+    sendResult = 0;
+    do {
+        const char *sendbuf = "cmd0";
+        sendResult = send(ConnectSocket, sendbuf, (int)strlen(sendbuf), 0 );
+        if (sendResult == SOCKET_ERROR) {
             printf("send failed with error: %d\n", WSAGetLastError());
             closesocket(ConnectSocket);
             WSACleanup();
         }
 
-        printf("Bytes Sent: %ld\n", iResult);
+        printf("Bytes Sent: %d\n", sendResult);
 
-    } while (iResult > 0);
+    } while (sendResult > 0);
 
     // shutdown the connection since we're done
     iResult = shutdown(ConnectSocket, SD_SEND);
@@ -49,19 +87,20 @@ _Noreturn void *software_send() {
 }
 
 //
-_Noreturn void *software_recieve() {
+_Noreturn void *socketRecieve() {
     // Receive until the peer closes the connection
-    do {
+    while(true){
 
-        iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
-        if ( iResult > 0 )
-            printf("Bytes received: %d\n", iResult);
-        else if ( iResult == 0 )
+        recvResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
+        if ( recvResult > 0 )
+            printf("Bytes received: %s\n", recvbuf);
+        else if ( recvResult == 0 )
             printf("Connection closed\n");
         else
+            break;
             printf("recv failed with error: %d\n", WSAGetLastError());
 
-    } while( iResult > 0 );
+    }
 
     // cleanup
     closesocket(ConnectSocket);
@@ -128,33 +167,28 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Send an initial buffer
-    iResult = send( ConnectSocket, sendbuf, (int)strlen(sendbuf), 0 );
-    if (iResult == SOCKET_ERROR) {
-        printf("send failed with error: %d\n", WSAGetLastError());
-        closesocket(ConnectSocket);
-        WSACleanup();
-        return 1;
-    }
+    fp = fopen ("data.txt", "a+");
+    fcan = fopen ("can.txt", "r");
 
-    printf("Bytes Sent: %ld\n", iResult);
+    pthread_t send_thread, recieve_thread, save_thread, can_thread, readAnalog_thread, telemetry_thread, bluetooth_thread;
 
-    // shutdown the connection since no more data will be sent
-//    iResult = shutdown(ConnectSocket, SD_SEND);
-//    if (iResult == SOCKET_ERROR) {
-//        printf("shutdown failed with error: %d\n", WSAGetLastError());
-//        closesocket(ConnectSocket);
-//        WSACleanup();
-//        return 1;
-//    }
+    pthread_create(&send_thread, NULL, socketSend, NULL);
+    pthread_create(&recieve_thread, NULL, socketRecieve, NULL);
+    pthread_create(&save_thread, NULL, saveData, NULL);
+    pthread_create(&can_thread, NULL, readCanData, NULL);
+    pthread_create(&readAnalog_thread, NULL, readAnalogicData, NULL);
+    pthread_create(&telemetry_thread, NULL, sendTelemetryData, NULL);
+    pthread_create(&bluetooth_thread, NULL, sendBluetoothData, NULL);
 
-    pthread_t sendThread, recieveThread;
+    pthread_join(send_thread, NULL);
+    pthread_join(recieve_thread, NULL);
+    pthread_join(save_thread, NULL);
+    pthread_join(can_thread, NULL);
+    pthread_join(readAnalog_thread, NULL);
+    pthread_join(telemetry_thread, NULL);
+    pthread_join(bluetooth_thread, NULL);
 
-    pthread_create(&sendThread, NULL, software_send, NULL);
-    pthread_create(&recieveThread, NULL, software_recieve, NULL);
-
-    pthread_join(sendThread, NULL);
-    pthread_join(recieveThread, NULL);
+    //fclose(fp);
 
     return 0;
 }

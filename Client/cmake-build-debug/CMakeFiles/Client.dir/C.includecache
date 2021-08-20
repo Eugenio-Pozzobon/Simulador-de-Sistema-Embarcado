@@ -19,8 +19,8 @@ unistd.h
 -
 string.h
 -
-sys/types.h
--
 pthread.h
+-
+stdbool.h
 -
 
