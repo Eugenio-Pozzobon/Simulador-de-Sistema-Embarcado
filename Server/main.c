@@ -1,3 +1,5 @@
+// Software - Monitor
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,35 +14,73 @@
 #define DEFAULT_BUFLEN 512
 #define DEFAULT_PORT "27015"
 
-pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t sendMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t recvMutex = PTHREAD_MUTEX_INITIALIZER;
 
-int iResult;
-int iSendResult;
+int iResult, sendResult, recvResult;
+
 char recvbuf[DEFAULT_BUFLEN];
+char *sendbuf = "this is a test";
+
 int recvbuflen = DEFAULT_BUFLEN;
+
+bool sendCmd = false;
 
 SOCKET ListenSocket = INVALID_SOCKET;
 SOCKET ClientSocket = INVALID_SOCKET;
 
-//
-_Noreturn void *software_send() {
-    do {
 
-        const char *sendbuf = "this is a test";
-        iResult = send( ClientSocket, sendbuf, (int)strlen(sendbuf), 0 );
-        if (iResult == SOCKET_ERROR) {
+_Noreturn void *cmdMonitor() {
+    char *cmd, *id_original, *id_final; //comando do usuário para o shell
+    char entrada[100]; //entrada raw do usuario
+    while(true){
+        printf("cmdMonitor>");
+        fgets(entrada, 100, stdin); //pega o comando dado
+
+        entrada[strlen(entrada)-1] = '\0'; //remove o '\n'
+
+        cmd = strtok(entrada, " " ); //divide o comando para pegar só a parte que importa
+
+
+        if(strncmp(cmd, "changeHz" ,100) == 0){
+        }else if(strncmp(cmd, "tele" ,100) == 0){
+        }else if(strncmp(cmd, "changeHz" ,100) == 0){ //comando dir
+//             = strtok(NULL, " " );
+//             = strtok(NULL, " " );
+            pthread_mutex_lock(&sendMutex);
+            sendCmd = true;
+            sendbuf = cmd;
+            pthread_mutex_unlock(&sendMutex);
+        }else if(strncmp(cmd, "sair" ,100) == 0){//comando sair do loop
+            break;
+
+        }else if(strncmp(cmd, "help" ,100) == 0){
+        }else{
+            //identifica comando não encontrado
+            printf("Comando não encontrado\n");
+        }
+    }
+}
+//
+_Noreturn void *socketSend() {
+    do {
+        pthread_mutex_lock(&sendMutex);
+        *sendbuf = "cmd0";
+        sendResult = send( ClientSocket, sendbuf, (int)strlen(sendbuf), 0 );
+        if (sendResult == SOCKET_ERROR) {
             printf("send failed with error: %d\n", WSAGetLastError());
             closesocket(ClientSocket);
             WSACleanup();
         }
+        pthread_mutex_unlock(&sendMutex);
 
-        printf("Bytes Sent: %ld\n", iResult);
+        printf("Bytes Sent: %d\n", sendResult);
 
-    } while (iResult > 0);
+    } while (sendResult > 0);
 
     // shutdown the connection since we're done
-    iResult = shutdown(ClientSocket, SD_SEND);
-    if (iResult == SOCKET_ERROR) {
+    sendResult = shutdown(ClientSocket, SD_SEND);
+    if (sendResult == SOCKET_ERROR) {
         printf("shutdown failed with error: %d\n", WSAGetLastError());
         closesocket(ClientSocket);
         WSACleanup();
@@ -52,19 +92,21 @@ _Noreturn void *software_send() {
 }
 
 //
-_Noreturn void *software_recieve() {
+_Noreturn void *socketRecieve() {
     // Receive until the peer closes the connection
     do {
-
-        iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-        if ( iResult > 0 )
-            printf("Bytes received: %d\n", iResult);
-        else if ( iResult == 0 )
+        pthread_mutex_lock(&recvMutex);
+        recvResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
+        if ( recvResult > 0 )
+            printf("Bytes received: %s\n", recvbuf);
+        else if ( recvResult == 0 )
             printf("Connection closed\n");
         else
             printf("recv failed with error: %d\n", WSAGetLastError());
 
-    } while( iResult > 0 );
+        pthread_mutex_unlock(&recvMutex);
+
+    } while( recvResult > 0 );
 
     // cleanup
     closesocket(ClientSocket);
@@ -77,8 +119,6 @@ int main(int argc, char *argv[]) {
 
     struct addrinfo *result = NULL;
     struct addrinfo hints;
-
-
 
     // Initialize Winsock
     iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
@@ -144,13 +184,15 @@ int main(int argc, char *argv[]) {
 
     // Receive until the peer shuts down the connection
 
-    pthread_t sendThread, recieveThread;
+    pthread_t send_thread, recieve_thread, cmd_thread;
 
-    pthread_create(&sendThread, NULL, software_send, NULL);
-    pthread_create(&recieveThread, NULL, software_recieve, NULL);
+    pthread_create(&send_thread, NULL, socketSend, NULL);
+    pthread_create(&recieve_thread, NULL, socketRecieve, NULL);
+    pthread_create(&cmd_thread, NULL, cmdMonitor, NULL);
 
-    pthread_join(sendThread, NULL);
-    pthread_join(recieveThread, NULL);
+    pthread_join(send_thread, NULL);
+    pthread_join(recieve_thread, NULL);
+    pthread_join(cmd_thread, NULL);
 
     return 0;
 }
