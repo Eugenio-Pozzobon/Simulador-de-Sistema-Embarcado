@@ -11,102 +11,133 @@
 
 #pragma comment (lib, "Ws2_32.lib")
 
-#define DEFAULT_BUFLEN 512
-#define DEFAULT_PORT "27015"
+#define DEFAULT_BUFLEN 256
+#define DEFAULT_PORT "8080"
 
-pthread_mutex_t sendMutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t recvMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t connectionMutex = PTHREAD_MUTEX_INITIALIZER;
 
 int iResult, sendResult, recvResult;
 
 char recvbuf[DEFAULT_BUFLEN];
-char *sendbuf = "this is a test";
+char *sendbuf;
 
 int recvbuflen = DEFAULT_BUFLEN;
 
-bool sendCmd = false;
+bool sendCmd = false, exitProgram = false;
 
-SOCKET ListenSocket = INVALID_SOCKET;
 SOCKET ClientSocket = INVALID_SOCKET;
-
 
 _Noreturn void *cmdMonitor() {
     char *cmd, *id_original, *id_final; //comando do usuário para o shell
-    char entrada[100]; //entrada raw do usuario
+    char entrada[DEFAULT_BUFLEN]; //entrada raw do usuario
     while(true){
-        printf("cmdMonitor>");
-        fgets(entrada, 100, stdin); //pega o comando dado
+        printf("cmd>");
+        fgets(entrada, DEFAULT_BUFLEN, stdin); //pega o comando dado
 
         entrada[strlen(entrada)-1] = '\0'; //remove o '\n'
 
         cmd = strtok(entrada, " " ); //divide o comando para pegar só a parte que importa
 
+        pthread_mutex_lock(&connectionMutex);
+        memset(sendbuf, 0, DEFAULT_BUFLEN);
+        strcpy(sendbuf, entrada);
+        printf("\tsending cmd %s\n", sendbuf);
+        pthread_mutex_unlock(&connectionMutex);
 
-        if(strncmp(cmd, "changeHz" ,100) == 0){
-        }else if(strncmp(cmd, "tele" ,100) == 0){
-        }else if(strncmp(cmd, "changeHz" ,100) == 0){ //comando dir
-//             = strtok(NULL, " " );
-//             = strtok(NULL, " " );
-            pthread_mutex_lock(&sendMutex);
-            sendCmd = true;
-            sendbuf = cmd;
-            pthread_mutex_unlock(&sendMutex);
-        }else if(strncmp(cmd, "sair" ,100) == 0){//comando sair do loop
+        if(strncmp(cmd, "sair" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
+
+            printf("\ncmd>\tEncerrando...\n");
+            pthread_mutex_lock(&connectionMutex);
+            exitProgram = true;
+            pthread_mutex_unlock(&connectionMutex);
             break;
 
-        }else if(strncmp(cmd, "help" ,100) == 0){
+        }else if(strncmp(cmd, "help" ,DEFAULT_BUFLEN) == 0){
         }else{
             //identifica comando não encontrado
-            printf("Comando não encontrado\n");
+            printf("\n\tComando nao encontrado\n");
         }
     }
 }
+
 //
 _Noreturn void *socketSend() {
-    do {
-        pthread_mutex_lock(&sendMutex);
-        *sendbuf = "cmd0";
-        sendResult = send( ClientSocket, sendbuf, (int)strlen(sendbuf), 0 );
+
+    struct timespec ts = {0, 0};
+    /* 0 and 1/10 seconds */
+    ts.tv_sec  = 1;
+    ts.tv_nsec = 000000000;
+
+    while(true){
+        //printf("\nLets Send...\n");
+        pthread_mutex_lock(&connectionMutex);
+
+        if(exitProgram){
+            pthread_mutex_unlock(&connectionMutex);
+            break;
+        }
+
+        if(sendCmd){
+            //printf("\nSending...\n");
+            sendResult = send( ClientSocket, sendbuf, (int)strlen(sendbuf), 0 );
+            if (sendResult == SOCKET_ERROR) {
+                printf("\nerror>send failed with error: %d\n", WSAGetLastError());
+                break;
+            }else{
+            }
+        }
+
+        pthread_mutex_unlock(&connectionMutex);
+        pthread_delay_np(&ts);
+    }
+
+
+    if(!exitProgram){
+        printf("\ncmd>\tServer Closed\n");
+        // shutdown the connection since we're done
+        sendResult = shutdown(ClientSocket, SD_SEND);
         if (sendResult == SOCKET_ERROR) {
-            printf("send failed with error: %d\n", WSAGetLastError());
+            printf("\nerror>shutdown failed with error: %d\n", WSAGetLastError());
             closesocket(ClientSocket);
             WSACleanup();
         }
-        pthread_mutex_unlock(&sendMutex);
-
-        printf("Bytes Sent: %d\n", sendResult);
-
-    } while (sendResult > 0);
-
-    // shutdown the connection since we're done
-    sendResult = shutdown(ClientSocket, SD_SEND);
-    if (sendResult == SOCKET_ERROR) {
-        printf("shutdown failed with error: %d\n", WSAGetLastError());
-        closesocket(ClientSocket);
-        WSACleanup();
     }
 
     // cleanup
     closesocket(ClientSocket);
     WSACleanup();
+
 }
 
 //
 _Noreturn void *socketRecieve() {
     // Receive until the peer closes the connection
-    do {
-        pthread_mutex_lock(&recvMutex);
-        recvResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-        if ( recvResult > 0 )
-            printf("Bytes received: %s\n", recvbuf);
-        else if ( recvResult == 0 )
-            printf("Connection closed\n");
-        else
-            printf("recv failed with error: %d\n", WSAGetLastError());
+    while(true){
+        pthread_mutex_lock(&connectionMutex);
 
-        pthread_mutex_unlock(&recvMutex);
+        if(exitProgram) {
+            pthread_mutex_unlock(&connectionMutex);
+            break;
+        }
 
-    } while( recvResult > 0 );
+        if(!sendCmd){
+            recvResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
+            //printf("\nRecieving...\n");
+            if ( recvResult > 0 ){
+                sendCmd = true;
+                //printf("Bytes received: %s\n", recvbuf);
+            }else if ( recvResult == 0 ){
+            }else{
+                printf("error>recv failed with error: %d\n", WSAGetLastError());
+                break;
+            }
+        }
+
+        pthread_mutex_unlock(&connectionMutex);
+
+    }
+
+    printf("cmd>\tServer Closed\n");
 
     // cleanup
     closesocket(ClientSocket);
@@ -123,7 +154,7 @@ int main(int argc, char *argv[]) {
     // Initialize Winsock
     iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
     if (iResult != 0) {
-        printf("WSAStartup failed with error: %d\n", iResult);
+        printf("error>WSAStartup failed with error: %d\n", iResult);
         return 1;
     }
 
@@ -136,62 +167,64 @@ int main(int argc, char *argv[]) {
     // Resolve the server address and port
     iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
     if ( iResult != 0 ) {
-        printf("getaddrinfo failed with error: %d\n", iResult);
+        printf("error>getaddrinfo failed with error: %d\n", iResult);
         WSACleanup();
         return 1;
     }
 
     // Create a SOCKET for connecting to server
-    ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-    if (ListenSocket == INVALID_SOCKET) {
-        printf("socket failed with error: %d\n", WSAGetLastError());
+    ClientSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    if (ClientSocket == INVALID_SOCKET) {
+        printf("error>socket failed with error: %d\n", WSAGetLastError());
         freeaddrinfo(result);
         WSACleanup();
         return 1;
     }
 
     // Setup the TCP listening socket
-    iResult = bind( ListenSocket, result->ai_addr, (int)result->ai_addrlen);
+    iResult = bind( ClientSocket, result->ai_addr, (int)result->ai_addrlen);
     if (iResult == SOCKET_ERROR) {
-        printf("bind failed with error: %d\n", WSAGetLastError());
+        printf("error>bind failed with error: %d\n", WSAGetLastError());
         freeaddrinfo(result);
-        closesocket(ListenSocket);
+        closesocket(ClientSocket);
         WSACleanup();
         return 1;
     }
 
     freeaddrinfo(result);
 
-    iResult = listen(ListenSocket, SOMAXCONN);
+    iResult = listen(ClientSocket, SOMAXCONN);
     if (iResult == SOCKET_ERROR) {
-        printf("listen failed with error: %d\n", WSAGetLastError());
-        closesocket(ListenSocket);
+        printf("error>listen failed with error: %d\n", WSAGetLastError());
+        closesocket(ClientSocket);
         WSACleanup();
         return 1;
     }
 
     // Accept a client socket
-    ClientSocket = accept(ListenSocket, NULL, NULL);
+    ClientSocket = accept(ClientSocket, NULL, NULL);
     if (ClientSocket == INVALID_SOCKET) {
-        printf("accept failed with error: %d\n", WSAGetLastError());
-        closesocket(ListenSocket);
+        printf("error>accept failed with error: %d\n", WSAGetLastError());
+        closesocket(ClientSocket);
         WSACleanup();
         return 1;
     }
 
-    // No longer need server socket
-    // closesocket(ListenSocket);
+    printf("\nStarting Server\n");
 
-    // Receive until the peer shuts down the connection
+    sendbuf = malloc(DEFAULT_BUFLEN);
+    memset(sendbuf, 0, DEFAULT_BUFLEN);
+    strcpy(sendbuf, "0");
+
 
     pthread_t send_thread, recieve_thread, cmd_thread;
 
-    pthread_create(&send_thread, NULL, socketSend, NULL);
     pthread_create(&recieve_thread, NULL, socketRecieve, NULL);
+    pthread_create(&send_thread, NULL, socketSend, NULL);
     pthread_create(&cmd_thread, NULL, cmdMonitor, NULL);
 
-    pthread_join(send_thread, NULL);
     pthread_join(recieve_thread, NULL);
+    pthread_join(send_thread, NULL);
     pthread_join(cmd_thread, NULL);
 
     return 0;
