@@ -23,7 +23,7 @@ char *sendbuf;
 
 int recvbuflen = DEFAULT_BUFLEN;
 
-bool sendCmd = false, exitProgram = false;
+bool sendCmd = false, exitProgram = false, readingLogData = false;
 
 SOCKET ClientSocket = INVALID_SOCKET;
 
@@ -44,6 +44,11 @@ _Noreturn void *cmdMonitor() {
         printf("\tsending cmd %s\n", sendbuf);
         pthread_mutex_unlock(&connectionMutex);
 
+        //ler valores salvos
+
+        if(strncmp(cmd, "lerdados" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
+            readingLogData = true;
+        }
         if(strncmp(cmd, "sair" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
 
             printf("\ncmd>\tEncerrando...\n");
@@ -77,7 +82,7 @@ _Noreturn void *socketSend() {
             break;
         }
 
-        if(sendCmd){
+        if(sendCmd && !readingLogData){
             //printf("\nSending...\n");
             sendResult = send( ClientSocket, sendbuf, (int)strlen(sendbuf), 0 );
             if (sendResult == SOCKET_ERROR) {
@@ -126,6 +131,12 @@ _Noreturn void *socketRecieve() {
             if ( recvResult > 0 ){
                 sendCmd = true;
                 //printf("Bytes received: %s\n", recvbuf);
+                if(readingLogData){
+                    printf("\tlog>%s\n", recvbuf);
+                }
+                if(strncmp(recvbuf, "endlog" ,DEFAULT_BUFLEN) == 0){
+                    readingLogData = false;
+                }
             }else if ( recvResult == 0 ){
             }else{
                 printf("error>recv failed with error: %d\n", WSAGetLastError());

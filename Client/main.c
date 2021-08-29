@@ -27,6 +27,11 @@ int recvbuflen = DEFAULT_BUFLEN;
 int analogRead[8];
 byte canRead[8];
 
+float rpm = 0;
+float gear= 0;
+float eng_temp = 0;
+float oil_pres = 0;
+
 bool sendCmd = true;
 
 FILE *fp, *fcan;
@@ -54,21 +59,19 @@ _Noreturn void *readAnalogicData() {
 
 _Noreturn void *readCanData() {
 
+    //    struct timespec ts = {0, 0};
+    //    /* 0 and 1/4 seconds */
+    //    ts.tv_sec  = 0;
+    //    ts.tv_nsec = 250000000;
 
     fcan = fopen ("can.csv", "r");
 
     while(true){
-
+        rpm = 0;
+        gear= 0;
+        eng_temp = 0;
+        oil_pres = 0;
     }
-//    struct timespec ts = {0, 0};
-//    /* 0 and 1/4 seconds */
-//    ts.tv_sec  = 0;
-//    ts.tv_nsec = 250000000;
-//
-//    while(true){
-//
-//        pthread_delay_np(&ts);
-//    }
 }
 
 _Noreturn void *sendTelemetryData() {
@@ -99,9 +102,9 @@ _Noreturn void *sendTelemetryData() {
 _Noreturn void *saveData() {
 
     struct timespec ts = {0, 0};
-    /* 0 and 1/4 seconds */
+    /* 0 and 1/10 seconds */
     ts.tv_sec  = 0;
-    ts.tv_nsec = 250000000;
+    ts.tv_nsec = 10000000;
 
     while(true){ // inserir condição para interromper gravação e salvar dados
 
@@ -117,6 +120,8 @@ _Noreturn void *saveData() {
             fprintf(fp, "%d,", analogRead[i]);
         }
 
+        fprintf(fp, "\n");
+
         pthread_mutex_unlock(&analogMutex);
         pthread_mutex_unlock(&canMutex);
 
@@ -126,7 +131,32 @@ _Noreturn void *saveData() {
 }
 
 _Noreturn void *sendBluetoothData() {
+    struct timespec ts = {0, 0};
+    /* 0 and 1/10 seconds */
+    ts.tv_sec  = 0;
+    ts.tv_nsec = 100000000;
 
+    while(true){
+        pthread_mutex_lock(&canMutex);
+        printf("\tpilot>");
+        byte rpm_state = 0;
+        rpm_state = rpm>200?1:0;
+        rpm_state = rpm>1500?3:0;
+        rpm_state = rpm>3500?2:0;
+        rpm_state = rpm>5500?4:0;
+        rpm_state = rpm>7500?5:0;
+        rpm_state = rpm>9500?6:0;
+        rpm_state = rpm>10500?7:0;
+
+        printf("\tRPM: %d", rpm_state);
+        printf("\tG: %0.f", gear);
+        printf("\tET: %0.f", eng_temp);
+        printf("\tOP: %0.f", oil_pres);
+        printf("\n");
+        pthread_mutex_unlock(&canMutex);
+
+        pthread_delay_np(&ts);
+    }
 }
 
 //
@@ -176,6 +206,10 @@ _Noreturn void *socketRecieve() {
             if (recvResult > 0) {
                 sendCmd = true;
                 printf("Bytes received: %s\n", recvbuf);
+                //alterar valores telemetria
+                //ler valores salvos
+                // while...
+                //alterar taxa de gravação de dados
             } else if (recvResult == 0) {
                 //printf("Connection closed\n");
             } else {
