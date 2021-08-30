@@ -37,9 +37,12 @@ void *cmdMonitor() {
         entrada[strlen(entrada)-1] = '\0'; //remove o '\n'
 
         pthread_mutex_lock(&connectionMutex);
+
         memset(sendbuf, 0, DEFAULT_BUFLEN);
         strcpy(sendbuf, entrada);
-        printf("\tsending cmd %s\n", sendbuf);
+        //printf("\tsending cmd %s\n", sendbuf);
+
+
         pthread_mutex_unlock(&connectionMutex);
 
         //ler valores salvos
@@ -59,6 +62,10 @@ void *cmdMonitor() {
             break;
 
         }else if(strncmp(cmd, "help" ,DEFAULT_BUFLEN) == 0){
+            printf("\n\t\t'lerdados':\t\t le os dados do log");
+            printf("\n\t\t'getlogtime':\t\t acessa e imprime a atual taxa de gravação do log");
+            printf("\n\t\t'setlogtime valor':\t seta um valor diferente para a taxa de gravação do log\n");
+
         }else{
             //identifica comando não encontrado
             printf("\n\tComando nao encontrado\n");
@@ -72,7 +79,7 @@ void *socketSend() {
     struct timespec ts = {0, 0};
     /* 0 and 1/10 seconds */
     ts.tv_sec  = 0;
-    ts.tv_nsec = 500000000;
+    ts.tv_nsec = 100000000;
 
     while(true){
         //printf("\nLets Send...\n");
@@ -90,6 +97,8 @@ void *socketSend() {
                 printf("\nerror>send failed with error: %d\n", WSAGetLastError());
                 break;
             }
+//            for(int i = 1; i<=strlen(sendbuf); i++)
+//                sendbuf[strlen(sendbuf)-i] = '\0';
             sendCmd = false;
         }
 
@@ -130,7 +139,6 @@ _Noreturn void *socketRecieve() {
             recvResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
             //printf("\nRecieving...\n");
             if ( recvResult > 0 ){
-                sendCmd = true;
                 //printf("Bytes received: %s\n", recvbuf);
                 if(readingLogData){
                     printf("\n\tlog>%s\n", recvbuf);
@@ -141,19 +149,25 @@ _Noreturn void *socketRecieve() {
 
                     printf("cmd>");
                     readingLogInfo = false;
-                }
 
-                if(strncmp(recvbuf, "endlog" ,DEFAULT_BUFLEN) == 0){
-                    readingLogData = false;
-                }
-                if(strncmp(recvbuf, "cmdok" ,DEFAULT_BUFLEN) == 0){
-
-                    //limpa buffer
-                    printf("CMD EXECUTED");
                     sendbuf = malloc(DEFAULT_BUFLEN);
                     memset(sendbuf, '\0', DEFAULT_BUFLEN);
                     strcpy(sendbuf, "0");
                 }
+
+                if(strncmp(recvbuf, "endlog" ,20) == 0){
+                    readingLogData = false;
+                }
+                if(strncmp(recvbuf, "cmdok" ,20) == 0){
+                    //limpa buffer
+                    //printf("CMD EXECUTED");
+                    for(int i = 1; i<=strlen(recvbuf); i++)
+                        recvbuf[strlen(recvbuf)-i] = '\0';
+                }
+
+                for(int i = 1; i<=strlen(recvbuf); i++)
+                    recvbuf[strlen(recvbuf)-i] = '\0';
+
             }else if ( recvResult == 0 ){
             }else{
                 printf("error>recv failed with error: %d\n", WSAGetLastError());
