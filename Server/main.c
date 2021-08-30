@@ -18,8 +18,11 @@ pthread_mutex_t connectionMutex = PTHREAD_MUTEX_INITIALIZER;
 
 int iResult, sendResult, recvResult;
 
-char recvbuf[DEFAULT_BUFLEN];
-char *sendbuf;
+char* emptyString="";
+char* recvbuf;//[DEFAULT_BUFLEN];
+char* sendbuf;//[DEFAULT_BUFLEN];
+
+char* okbuf = "0";
 
 int recvbuflen = DEFAULT_BUFLEN;
 
@@ -31,6 +34,7 @@ void *cmdMonitor() {
     char *cmd, *id_original, *id_final; //comando do usuário para o shell
     char entrada[DEFAULT_BUFLEN]; //entrada raw do usuario
     while(true){
+
         printf("cmd>");
         fgets(entrada, DEFAULT_BUFLEN, stdin); //pega o comando dado
 
@@ -38,8 +42,8 @@ void *cmdMonitor() {
 
         pthread_mutex_lock(&connectionMutex);
 
-        memset(sendbuf, 0, DEFAULT_BUFLEN);
-        strcpy(sendbuf, entrada);
+        sendResult = send( ClientSocket, entrada, DEFAULT_BUFLEN, 0 );
+
         //printf("\tsending cmd %s\n", sendbuf);
 
 
@@ -48,8 +52,8 @@ void *cmdMonitor() {
         //ler valores salvos
         cmd = strtok(entrada, " " ); //divide o comando para pegar só a parte que importa
 
-        if(strncmp(cmd, "lerdados" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
-            readingLogData = true;
+        if(strncmp(cmd, "readlogdta" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
+
         }else if(strncmp(cmd, "setlogtime" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
         }else if(strncmp(cmd, "getlogtime" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
             readingLogInfo = true;
@@ -78,8 +82,8 @@ void *socketSend() {
 
     struct timespec ts = {0, 0};
     /* 0 and 1/10 seconds */
-    ts.tv_sec  = 0;
-    ts.tv_nsec = 100000000;
+    ts.tv_sec  = 1;
+    ts.tv_nsec = 0;
 
     while(true){
         //printf("\nLets Send...\n");
@@ -92,13 +96,11 @@ void *socketSend() {
 
         if(sendCmd && !readingLogData){
             //printf("\nSending...\n");
-            sendResult = send( ClientSocket, sendbuf, (int)strlen(sendbuf), 0 );
+            sendResult = send( ClientSocket, okbuf, DEFAULT_BUFLEN, 0 );
             if (sendResult == SOCKET_ERROR) {
                 printf("\nerror>send failed with error: %d\n", WSAGetLastError());
                 break;
             }
-//            for(int i = 1; i<=strlen(sendbuf); i++)
-//                sendbuf[strlen(sendbuf)-i] = '\0';
             sendCmd = false;
         }
 
@@ -135,38 +137,37 @@ _Noreturn void *socketRecieve() {
             break;
         }
 
-        if(!sendCmd){
+        if(!sendCmd || readingLogData){
             recvResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
             //printf("\nRecieving...\n");
             if ( recvResult > 0 ){
                 //printf("Bytes received: %s\n", recvbuf);
                 if(readingLogData){
-                    printf("\n\tlog>%s\n", recvbuf);
-                }
 
-                if(readingLogInfo){
+                    if(strncmp(recvbuf, "endlog" ,20) == 0){
+                        readingLogData = false;
+                        printf("\n\t\t\tendlog");
+                   }else{
+                        printf("\n\tlog>%s\n", recvbuf);
+                    }
+
+                }
+                if(strncmp(recvbuf, "startlog" ,20) == 0){
+                    readingLogData = true;
+                    printf("\n\t\tstartlog");
+                }else if(readingLogInfo){
                     printf("getlogtime>>%s\n", recvbuf);
 
                     printf("cmd>");
                     readingLogInfo = false;
-
-                    sendbuf = malloc(DEFAULT_BUFLEN);
-                    memset(sendbuf, '\0', DEFAULT_BUFLEN);
-                    strcpy(sendbuf, "0");
+                }else if(strncmp(recvbuf, "cmdok" ,20) == 0){
                 }
 
-                if(strncmp(recvbuf, "endlog" ,20) == 0){
-                    readingLogData = false;
-                }
-                if(strncmp(recvbuf, "cmdok" ,20) == 0){
-                    //limpa buffer
-                    //printf("CMD EXECUTED");
-                    for(int i = 1; i<=strlen(recvbuf); i++)
-                        recvbuf[strlen(recvbuf)-i] = '\0';
-                }
+                //recvbuf = okbuf;
 
-                for(int i = 1; i<=strlen(recvbuf); i++)
-                    recvbuf[strlen(recvbuf)-i] = '\0';
+                //strcpy(recvbuf, "");    // copy a string into the newly allocated block on the heap
+                //memset(recvbuf, 0, DEFAULT_BUFLEN);
+                //free(recvbuf);
 
             }else if ( recvResult == 0 ){
             }else{
@@ -193,6 +194,10 @@ int main(int argc, char *argv[]) {
 
     struct addrinfo *result = NULL;
     struct addrinfo hints;
+
+    recvbuf = malloc(DEFAULT_BUFLEN);
+    sendbuf = malloc(DEFAULT_BUFLEN);
+
 
     // Initialize Winsock
     iResult = WSAStartup(MAKEWORD(2,2), &wsaData);
@@ -255,7 +260,7 @@ int main(int argc, char *argv[]) {
 
     printf("\nStarting Server\n");
 
-    sendbuf = malloc(DEFAULT_BUFLEN);
+    //sendbuf = malloc(DEFAULT_BUFLEN);
     memset(sendbuf, '\0', DEFAULT_BUFLEN);
     strcpy(sendbuf, "0");
 

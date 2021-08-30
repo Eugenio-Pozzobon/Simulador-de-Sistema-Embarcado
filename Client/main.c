@@ -16,6 +16,8 @@
 #define DEFAULT_BUFLEN 512
 #define DEFAULT_PORT "8080"
 
+//#define PRINT_TL
+//#define PRINT_BT
 
 // Velocidade das threads
 #define CAN_HZ  5
@@ -28,7 +30,7 @@ pthread_mutex_t canMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t analogMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t savingDataMutex = PTHREAD_MUTEX_INITIALIZER;
 
-pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t condSave = PTHREAD_COND_INITIALIZER;
 
 SOCKET ConnectSocket = INVALID_SOCKET;
 char recvbuf[DEFAULT_BUFLEN];
@@ -40,8 +42,7 @@ int newHz = 10;
 //constantes sobre os dados a serem lidos
 int analogReadRaw[6];
 float analogRead[6];
-float min_an[6] = {-4, -4, -4, -90, -180, 0};
-float max_an[6] = {4, 4, 4, 90, 180, 260};
+
 
 //can frame
 byte canRead[8];
@@ -53,22 +54,27 @@ float eng_temp = 0;
 float oil_pres = 0;
 
 const char *okbuf = "cmdok";
+const char *endlog = "endlog";
+const char *startlog = "startlog";
 
 // sinaliza quando o sistema pode enviar algo para o servidor
-bool sendCmd = true;
+bool sendCmd = true, stopSave = false;
 
 //arquivos a serem escritos/lidos
 FILE *fp, *fcan;
 
 //conversão de dados analógicos
 float mapFloat(float x, float in_min, float in_max, float out_min, float out_max) {
-    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+    return ((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min);
 }
 
 //leitura de dados
 _Noreturn void *readAnalogicData() {
 
     clock_t begin = clock();
+
+    float min_an[6] = {-4, -4, -4, -90, -180, 0};
+    float max_an[6] = {4, 4, 4, 90, 180, 260};
 
     while (true) {
 
@@ -80,12 +86,12 @@ _Noreturn void *readAnalogicData() {
 
             //lê as portas analógicas
             for (int i = 0; i < 6; i++) {
-                analogReadRaw[i] = rand() % 1024;
+                analogReadRaw[i] = rand() % 1023;
             }
 
             // converte os valores da leitura analógica
             for (int i = 0; i < 6; i++) {
-                analogReadRaw[i] = mapFloat(analogReadRaw[i], 0, 1023, min_an[i], max_an[i]);
+                analogRead[i] = mapFloat((float)analogReadRaw[i], 0, 1023, min_an[i], max_an[i]);
             }
             pthread_mutex_unlock(&analogMutex);
         }
@@ -104,11 +110,15 @@ _Noreturn void *readCanData() {
 
         if (time * CAN_HZ > 1) {// CAN Hz
             //todo: parse CAN file
+
+            pthread_mutex_lock(&canMutex);
             begin = clock();
             rpm = 0;
             gear = 0;
             eng_temp = 0;
             oil_pres = 0;
+
+            pthread_mutex_unlock(&canMutex);
         }
     }
 }
@@ -127,14 +137,17 @@ _Noreturn void *sendTelemetryData() {
             //acessa ambos mutex juntos para não fracionar o print
             pthread_mutex_lock(&canMutex);
             pthread_mutex_lock(&analogMutex);
+
+#ifdef PRINT_TL
             printf("\ttele>");
             for (int i = 0; i < 8; i++) {
-                printf("%d,", canRead[i]);
+                printf("%hhu,", canRead[i]);
             }
             for (int i = 0; i < 6; i++) {
-                printf("%d,", analogRead[i]);
+                printf("%f,", analogRead[i]);
             }
             printf("\n");
+#endif
             pthread_mutex_unlock(&analogMutex);
             pthread_mutex_unlock(&canMutex);
         }
@@ -152,8 +165,12 @@ _Noreturn void *saveData() {
         pthread_mutex_lock(&savingDataMutex);
         double time = (double) (clock() - begin) / CLOCKS_PER_SEC;
         double elapsed = time * newHz;
+        if(stopSave){
+            while(stopSave){
+                pthread_cond_wait(&condSave, &savingDataMutex);
+            }
+        }
         pthread_mutex_unlock(&savingDataMutex);
-
         if (elapsed > 1) {
             begin = clock(); //algoritmo de compressão pela diferença de valores
 
@@ -172,6 +189,7 @@ _Noreturn void *saveData() {
             }
             pthread_mutex_unlock(&analogMutex);
             fprintf(fp, "\n");
+
             fclose(fp);
         }
     }
@@ -188,7 +206,6 @@ _Noreturn void *sendBluetoothData() {
             begin = clock();
 
             pthread_mutex_lock(&canMutex);
-            printf("\tpilot>");
             byte rpm_state = 0;
             rpm_state = rpm > 200 ? 1 : 0;
             rpm_state = rpm > 1500 ? 3 : 0;
@@ -199,11 +216,14 @@ _Noreturn void *sendBluetoothData() {
             rpm_state = rpm > 10500 ? 7 : 0;
 
             //envia somente a parte inteira
+#ifdef PRINT_BT
+            printf("\tpilot>");
             printf("\tRPM: %d", rpm_state);
             printf("\tG: %0.f", gear);
             printf("\tET: %0.f", eng_temp);
             printf("\tOP: %0.f", oil_pres);
             printf("\n");
+#endif
             pthread_mutex_unlock(&canMutex);
         }
 
@@ -221,7 +241,7 @@ void *socketSend() {
 
         double time = (double) (clock() - begin) / CLOCKS_PER_SEC;
 
-        if (time > 0.1) {
+        if (time > 1) {
             begin = clock();
             pthread_mutex_lock(&connectionMutex);
 
@@ -257,21 +277,36 @@ void *socketSend() {
 //
 void *socketRecieve() {
     // Receive until the peer closes the connection
+    struct timespec ts = {0, 0};
+    ts.tv_sec  = 5;
+    ts.tv_nsec = 000000000;
+
     while (true) {
         pthread_mutex_lock(&connectionMutex);
         if (!sendCmd) {
             // printf("\nRecieving\n");
             recvResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
-            if (recvResult > 0) {
 
+            if (recvResult > 0) {
                 sendCmd = true;
                 printf("Bytes received: %s\n", recvbuf);
 
                 char *cmd_split = strtok(recvbuf, " "); //divide o comando para pegar só a parte que importa
 
                 // https://stackoverflow.com/questions/3501338/c-read-file-line-by-line
-                if (strncmp(cmd_split, "lerdados", DEFAULT_BUFLEN) == 0) {//comando sair do loop
+                if (strncmp(cmd_split, "readlogdta", DEFAULT_BUFLEN) == 0) {//comando sair do loop
                     // todo: ler valores salvos e enviar até encerrar a leitura
+                    pthread_mutex_lock(&savingDataMutex);
+                    stopSave = true;
+
+                    sendResult = send(ConnectSocket, startlog, (int) strlen(startlog), 0);
+                    pthread_delay_np(&ts); // simula tempo de leitura de dados para testar variável de condução
+                    sendResult = send(ConnectSocket, endlog, (int) strlen(endlog), 0);
+
+                    stopSave = false;
+                    pthread_cond_signal(&condSave);
+                    pthread_mutex_unlock(&savingDataMutex);
+                    sendCmd = true;
 
                 } else if (strncmp(cmd_split, "getlogtime", DEFAULT_BUFLEN) == 0) {//comando sair do loop
                     char *timedatabuf;
@@ -279,6 +314,7 @@ void *socketRecieve() {
                     sendResult = send(ConnectSocket, timedatabuf, (int) strlen(okbuf), 0);
 
                     sendCmd = false;
+
                 } else if (strncmp(cmd_split, "setlogtime", DEFAULT_BUFLEN) == 0) {//comando sair do loop
 
                     pthread_mutex_lock(&savingDataMutex);
