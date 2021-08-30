@@ -24,10 +24,10 @@ char *sendbuf;
 int recvbuflen = DEFAULT_BUFLEN;
 
 bool sendCmd = false, exitProgram = false, readingLogData = false;
-
+bool readingLogInfo = false;
 SOCKET ClientSocket = INVALID_SOCKET;
 
-_Noreturn void *cmdMonitor() {
+void *cmdMonitor() {
     char *cmd, *id_original, *id_final; //comando do usuário para o shell
     char entrada[DEFAULT_BUFLEN]; //entrada raw do usuario
     while(true){
@@ -36,8 +36,6 @@ _Noreturn void *cmdMonitor() {
 
         entrada[strlen(entrada)-1] = '\0'; //remove o '\n'
 
-        cmd = strtok(entrada, " " ); //divide o comando para pegar só a parte que importa
-
         pthread_mutex_lock(&connectionMutex);
         memset(sendbuf, 0, DEFAULT_BUFLEN);
         strcpy(sendbuf, entrada);
@@ -45,11 +43,14 @@ _Noreturn void *cmdMonitor() {
         pthread_mutex_unlock(&connectionMutex);
 
         //ler valores salvos
+        cmd = strtok(entrada, " " ); //divide o comando para pegar só a parte que importa
 
         if(strncmp(cmd, "lerdados" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
             readingLogData = true;
-        }
-        if(strncmp(cmd, "sair" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
+        }else if(strncmp(cmd, "setlogtime" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
+        }else if(strncmp(cmd, "getlogtime" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
+            readingLogInfo = true;
+        }else if(strncmp(cmd, "sair" ,DEFAULT_BUFLEN) == 0){//comando sair do loop
 
             printf("\ncmd>\tEncerrando...\n");
             pthread_mutex_lock(&connectionMutex);
@@ -66,12 +67,12 @@ _Noreturn void *cmdMonitor() {
 }
 
 //
-_Noreturn void *socketSend() {
+void *socketSend() {
 
     struct timespec ts = {0, 0};
     /* 0 and 1/10 seconds */
-    ts.tv_sec  = 1;
-    ts.tv_nsec = 000000000;
+    ts.tv_sec  = 0;
+    ts.tv_nsec = 500000000;
 
     while(true){
         //printf("\nLets Send...\n");
@@ -88,8 +89,8 @@ _Noreturn void *socketSend() {
             if (sendResult == SOCKET_ERROR) {
                 printf("\nerror>send failed with error: %d\n", WSAGetLastError());
                 break;
-            }else{
             }
+            sendCmd = false;
         }
 
         pthread_mutex_unlock(&connectionMutex);
@@ -132,16 +133,33 @@ _Noreturn void *socketRecieve() {
                 sendCmd = true;
                 //printf("Bytes received: %s\n", recvbuf);
                 if(readingLogData){
-                    printf("\tlog>%s\n", recvbuf);
+                    printf("\n\tlog>%s\n", recvbuf);
                 }
+
+                if(readingLogInfo){
+                    printf("getlogtime>>%s\n", recvbuf);
+
+                    printf("cmd>");
+                    readingLogInfo = false;
+                }
+
                 if(strncmp(recvbuf, "endlog" ,DEFAULT_BUFLEN) == 0){
                     readingLogData = false;
+                }
+                if(strncmp(recvbuf, "cmdok" ,DEFAULT_BUFLEN) == 0){
+
+                    //limpa buffer
+                    printf("CMD EXECUTED");
+                    sendbuf = malloc(DEFAULT_BUFLEN);
+                    memset(sendbuf, '\0', DEFAULT_BUFLEN);
+                    strcpy(sendbuf, "0");
                 }
             }else if ( recvResult == 0 ){
             }else{
                 printf("error>recv failed with error: %d\n", WSAGetLastError());
                 break;
             }
+            sendCmd = true;
         }
 
         pthread_mutex_unlock(&connectionMutex);
@@ -224,7 +242,7 @@ int main(int argc, char *argv[]) {
     printf("\nStarting Server\n");
 
     sendbuf = malloc(DEFAULT_BUFLEN);
-    memset(sendbuf, 0, DEFAULT_BUFLEN);
+    memset(sendbuf, '\0', DEFAULT_BUFLEN);
     strcpy(sendbuf, "0");
 
 
