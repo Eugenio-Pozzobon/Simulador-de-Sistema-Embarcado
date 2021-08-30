@@ -28,6 +28,8 @@ pthread_mutex_t canMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t analogMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t savingDataMutex = PTHREAD_MUTEX_INITIALIZER;
 
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+
 SOCKET ConnectSocket = INVALID_SOCKET;
 char recvbuf[DEFAULT_BUFLEN];
 int iResult, sendResult, recvResult;
