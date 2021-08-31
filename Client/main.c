@@ -16,8 +16,8 @@
 #define DEFAULT_BUFLEN 256
 #define DEFAULT_PORT "8080"
 
-//#define PRINT_TL
-//#define PRINT_BT
+#define PRINT_TL
+#define PRINT_BT
 
 // Velocidade das threads
 #define CAN_HZ  5
