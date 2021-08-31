@@ -20,7 +20,7 @@ int iResult, sendResult, recvResult;
 
 char* recvbuf;//[DEFAULT_BUFLEN];
 
-char* okbuf = "0";
+char* okbuf = "-";
 
 int recvbuflen = DEFAULT_BUFLEN;
 
@@ -60,7 +60,7 @@ void *cmdMonitor() {
             break;
 
         }else if(strncmp(cmd, "help" ,DEFAULT_BUFLEN) == 0){
-            printf("\n\t\t'getlog':\t\t le os dados do log");
+            printf("\n\t\t'data':\t\t le os dados do log");
             printf("\n\t\t'getlogtime':\t\t acessa e imprime a atual taxa de gravação do log");
             printf("\n\t\t'setlogtime valor':\t seta um valor diferente para a taxa de gravação do log\n");
 
@@ -123,6 +123,11 @@ void *socketSend() {
 //
 _Noreturn void *socketRecieve() {
     // Receive until the peer closes the connection
+
+    struct timespec ts = {0, 0};
+    ts.tv_sec  = 0;
+    ts.tv_nsec = 100000;
+
     while(true){
         pthread_mutex_lock(&connectionMutex);
 
@@ -168,7 +173,7 @@ _Noreturn void *socketRecieve() {
         }
 
         pthread_mutex_unlock(&connectionMutex);
-
+        pthread_delay_np(&ts);
     }
 
     printf("cmd>\tServer Closed\n");

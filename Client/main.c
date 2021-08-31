@@ -16,8 +16,8 @@
 #define DEFAULT_BUFLEN 256
 #define DEFAULT_PORT "8080"
 
-//#define PRINT_TL
-//#define PRINT_BT
+#define PRINT_TL
+#define PRINT_BT
 
 // Velocidade das threads
 #define CAN_HZ  5
@@ -49,12 +49,8 @@ float analogRead[6];
 byte canRead[8] = {0,0,0,0,0,0,0,0};
 int canId = 0;
 float canData[8] = {0,0,0,0,0,0,0,0};
+// RPM, MARCHA, VELOCIDADE, ABERTURA, PRESSÃO DO ÓLEO, COMBUSTÍVEL, TEMP MOTOR, TEMP ÓLEO
 
-//  bluetooth var
-float rpm = 0;
-float gear = 0;
-float eng_temp = 0;
-float oil_pres = 0;
 
 char *endlog = "endlog";
 char *startlog = "startlog";
@@ -111,14 +107,28 @@ _Noreturn void *readCanData() {
         double time = (double) (clock() - begin) / CLOCKS_PER_SEC;
 
         if (time * CAN_HZ > 1) {// CAN Hz
-            //todo: parse CAN file
-
-            pthread_mutex_lock(&canMutex);
             begin = clock();
-            rpm = 0;
-            gear = 0;
-            eng_temp = 0;
-            oil_pres = 0;
+            //todo: parse CAN file
+            pthread_mutex_lock(&canMutex);
+
+            //create CAN DATA
+            canId = 2000 + rand()%2;
+            for(int i = 0; i< 8; i++){
+                canRead[i] = rand()%256;
+            }
+
+            //process CAN DATA
+            if(canId == 2000){
+                canData[0] = (float)((canRead[0] << 8 | canRead[1]));///1);
+                canData[1] = (float)((canRead[2] << 8 | canRead[3]));///1);
+                canData[2] = (float)((canRead[4] << 8 | canRead[5]));///10);
+                canData[3] = (float)((canRead[6] << 8 | canRead[7]));///10);
+            }else if(canId == 2001){//                             )
+                canData[4] = (float)((canRead[0] << 8 | canRead[1]));///100);
+                canData[5] = (float)((canRead[2] << 8 | canRead[3]));///100);
+                canData[6] = (float)((canRead[4] << 8 | canRead[5]));///10);
+                canData[7] = (float)((canRead[6] << 8 | canRead[7]));///10);
+            }
 
             pthread_mutex_unlock(&canMutex);
         }
@@ -143,7 +153,7 @@ _Noreturn void *sendTelemetryData() {
 #ifdef PRINT_TL
             printf("\ttele>");
             for (int i = 0; i < 8; i++) {
-                printf("%hhu,", canRead[i]);
+                printf("%f,", canData[i]);
             }
             for (int i = 0; i < 6; i++) {
                 printf("%f,", analogRead[i]);
@@ -209,20 +219,20 @@ _Noreturn void *sendBluetoothData() {
 
             pthread_mutex_lock(&canMutex);
             byte rpm_state = 0;
-            rpm_state = rpm > 200 ? 1 : 0;
-            rpm_state = rpm > 1500 ? 3 : 0;
-            rpm_state = rpm > 3500 ? 2 : 0;
-            rpm_state = rpm > 5500 ? 4 : 0;
-            rpm_state = rpm > 7500 ? 5 : 0;
-            rpm_state = rpm > 9500 ? 6 : 7;
+            rpm_state = canData[0] > 200 ? 1 : 0;
+            rpm_state = canData[0] > 1500 ? 3 : 0;
+            rpm_state = canData[0] > 3500 ? 2 : 0;
+            rpm_state = canData[0] > 5500 ? 4 : 0;
+            rpm_state = canData[0] > 7500 ? 5 : 0;
+            rpm_state = canData[0] > 9500 ? 6 : 7;
 
             //envia somente a parte inteira
 #ifdef PRINT_BT
             printf("\tpilot>");
             printf("\tRPM: %d", rpm_state);
-            printf("\tG: %0.f", gear);
-            printf("\tET: %0.f", eng_temp);
-            printf("\tOP: %0.f", oil_pres);
+            printf("\tG: %0.f", canData[1]);
+            printf("\tET: %0.f", canData[6]);
+            printf("\tOP: %0.f", canData[4]);
             printf("\n");
 #endif
             pthread_mutex_unlock(&canMutex);
@@ -282,6 +292,9 @@ void *socketRecieve() {
     ts.tv_sec  = 0;
     ts.tv_nsec = 100000000;
 
+    char *timedatabuf;
+    timedatabuf = malloc(DEFAULT_BUFLEN);
+
     while (true) {
         pthread_mutex_lock(&connectionMutex);
         if (!sendCmd) {
@@ -317,16 +330,10 @@ void *socketRecieve() {
                 } else if (strncmp(cmd_split, "getlogtime", DEFAULT_BUFLEN) == 0) {//comando sair do loop
 
                     sendCmd = false;
-                    char *timedatabuf;
-                    timedatabuf = malloc(DEFAULT_BUFLEN);
                     itoa(newHz, timedatabuf, 10);
-                    printf("\n\tgetlogtime>>%s",timedatabuf);
+
                     sendResult = send(ConnectSocket, timedatabuf, DEFAULT_BUFLEN, 0);
-                    if (sendResult == SOCKET_ERROR) {
-                        printf("\nsend failed with error: %d\n", WSAGetLastError());
-                        break;
-                    } else {
-                    }
+
                 } else if (strncmp(cmd_split, "setlogtime", DEFAULT_BUFLEN) == 0) {//comando sair do loop
 
                     pthread_mutex_lock(&savingDataMutex);
