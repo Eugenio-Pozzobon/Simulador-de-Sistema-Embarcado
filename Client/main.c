@@ -13,7 +13,7 @@
 // Need to link with Ws2_32.lib, Mswsock.lib, and Advapi32.lib
 #pragma comment (lib, "Ws2_32.lib")
 
-#define DEFAULT_BUFLEN 512
+#define DEFAULT_BUFLEN 256
 #define DEFAULT_PORT "8080"
 
 //#define PRINT_TL
@@ -39,13 +39,16 @@ int recvbuflen = DEFAULT_BUFLEN;
 
 int newHz = 10;
 
+char *logline = "0.101,0,0,0,0,0,0,0,0,0,0,0,0,0,";
 //constantes sobre os dados a serem lidos
 int analogReadRaw[6];
 float analogRead[6];
 
 
 //can frame
-byte canRead[8];
+byte canRead[8] = {0,0,0,0,0,0,0,0};
+int canId = 0;
+float canData[8] = {0,0,0,0,0,0,0,0};
 
 //  bluetooth var
 float rpm = 0;
@@ -53,9 +56,8 @@ float gear = 0;
 float eng_temp = 0;
 float oil_pres = 0;
 
-const char *okbuf = "cmdok";
-const char *endlog = "endlog";
-const char *startlog = "startlog";
+char *endlog = "endlog";
+char *startlog = "startlog";
 
 // sinaliza quando o sistema pode enviar algo para o servidor
 bool sendCmd = true, stopSave = false;
@@ -179,7 +181,7 @@ _Noreturn void *saveData() {
 
             pthread_mutex_lock(&canMutex);
             for (int i = 0; i < 8; i++) {
-                fprintf(fp, "%d,", canRead[i]);
+                fprintf(fp, "%f,", canData[i]);
             }
             pthread_mutex_unlock(&canMutex);
 
@@ -212,8 +214,7 @@ _Noreturn void *sendBluetoothData() {
             rpm_state = rpm > 3500 ? 2 : 0;
             rpm_state = rpm > 5500 ? 4 : 0;
             rpm_state = rpm > 7500 ? 5 : 0;
-            rpm_state = rpm > 9500 ? 6 : 0;
-            rpm_state = rpm > 10500 ? 7 : 0;
+            rpm_state = rpm > 9500 ? 6 : 7;
 
             //envia somente a parte inteira
 #ifdef PRINT_BT
@@ -233,7 +234,7 @@ _Noreturn void *sendBluetoothData() {
 //
 void *socketSend() {
     sendResult = 0;
-    const char *sendbuf = "0";
+    const char *sendbuf = "-";
 
     clock_t begin = clock();
 
@@ -247,9 +248,9 @@ void *socketSend() {
 
             if (sendCmd) {
                 //printf("\nSending...\n");
-                sendResult = send(ConnectSocket, sendbuf, (int) strlen(sendbuf), 0);
+                sendResult = send(ConnectSocket, sendbuf, DEFAULT_BUFLEN, 0);
                 if (sendResult == SOCKET_ERROR) {
-                    //printf("send failed with error: %d\n", WSAGetLastError());
+                    //printf("\nsend failed with error: %d\n", WSAGetLastError());
                     break;
                 } else {
                     sendCmd = false;
@@ -264,7 +265,7 @@ void *socketSend() {
     // shutdown the connection since we're done
     iResult = shutdown(ConnectSocket, SD_SEND);
     if (iResult == SOCKET_ERROR) {
-        printf("shutdown failed with error: %d\n", WSAGetLastError());
+        //printf("shutdown failed with error: %d\n", WSAGetLastError());
         closesocket(ConnectSocket);
         WSACleanup();
     }
@@ -278,8 +279,8 @@ void *socketSend() {
 void *socketRecieve() {
     // Receive until the peer closes the connection
     struct timespec ts = {0, 0};
-    ts.tv_sec  = 5;
-    ts.tv_nsec = 000000000;
+    ts.tv_sec  = 0;
+    ts.tv_nsec = 100000000;
 
     while (true) {
         pthread_mutex_lock(&connectionMutex);
@@ -288,53 +289,64 @@ void *socketRecieve() {
             recvResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
 
             if (recvResult > 0) {
-                sendCmd = true;
                 printf("Bytes received: %s\n", recvbuf);
 
                 char *cmd_split = strtok(recvbuf, " "); //divide o comando para pegar só a parte que importa
 
                 // https://stackoverflow.com/questions/3501338/c-read-file-line-by-line
-                if (strncmp(cmd_split, "readlogdta", DEFAULT_BUFLEN) == 0) {//comando sair do loop
-                    // todo: ler valores salvos e enviar até encerrar a leitura
+                if (strncmp(cmd_split, "data", DEFAULT_BUFLEN) == 0) {//comando sair do loop
+
+                    sendCmd = false;
+
+                    printf("Bytes received: %s\n", recvbuf);
                     pthread_mutex_lock(&savingDataMutex);
                     stopSave = true;
-
-                    sendResult = send(ConnectSocket, startlog, (int) strlen(startlog), 0);
+                    send(ConnectSocket, startlog, DEFAULT_BUFLEN, 0);
+                    // todo: ler valores salvos e enviar até encerrar a leitura
                     pthread_delay_np(&ts); // simula tempo de leitura de dados para testar variável de condução
-                    sendResult = send(ConnectSocket, endlog, (int) strlen(endlog), 0);
+                    send(ConnectSocket, logline, DEFAULT_BUFLEN, 0);
+                    pthread_delay_np(&ts); // simula tempo de leitura de dados para testar variável de condução
+                    send(ConnectSocket, logline, DEFAULT_BUFLEN, 0);
+                    pthread_delay_np(&ts); // simula tempo de leitura de dados para testar variável de condução
+                    send(ConnectSocket, endlog, DEFAULT_BUFLEN, 0);
 
                     stopSave = false;
                     pthread_cond_signal(&condSave);
                     pthread_mutex_unlock(&savingDataMutex);
-                    sendCmd = true;
 
                 } else if (strncmp(cmd_split, "getlogtime", DEFAULT_BUFLEN) == 0) {//comando sair do loop
-                    char *timedatabuf;
-                    itoa(newHz, timedatabuf, 10);
-                    sendResult = send(ConnectSocket, timedatabuf, (int) strlen(okbuf), 0);
 
                     sendCmd = false;
-
+                    char *timedatabuf;
+                    timedatabuf = malloc(DEFAULT_BUFLEN);
+                    itoa(newHz, timedatabuf, 10);
+                    printf("\n\tgetlogtime>>%s",timedatabuf);
+                    sendResult = send(ConnectSocket, timedatabuf, DEFAULT_BUFLEN, 0);
+                    if (sendResult == SOCKET_ERROR) {
+                        printf("\nsend failed with error: %d\n", WSAGetLastError());
+                        break;
+                    } else {
+                    }
                 } else if (strncmp(cmd_split, "setlogtime", DEFAULT_BUFLEN) == 0) {//comando sair do loop
 
                     pthread_mutex_lock(&savingDataMutex);
-
                     char *array[3];
                     int i = 0;
 
+                    //parse cmd
                     while (cmd_split != NULL) {
                         array[i++] = cmd_split;
                         cmd_split = strtok(NULL, "/");
                     }
-                    newHz = (int) (atoi(array[1]));
-                    printf("\nsocket_cmd> New Log Time: %d\n", newHz);
-                    sendResult = send(ConnectSocket, okbuf, (int) strlen(okbuf), 0);
+                    newHz = (int)(atoi(array[1]));
+                    printf("\t\tsocket_cmd> New Log Time: %d\n\n", newHz);
                     sendCmd = false;
                     pthread_mutex_unlock(&savingDataMutex);
+                }else{
+                    sendCmd = true;
                 }
             } else if (recvResult == 0) {
                 sendCmd = true;
-                //printf("Connection closed\n");
             } else {
                 printf("recv failed with error: %d\n", WSAGetLastError());
                 break;
