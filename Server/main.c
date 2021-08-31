@@ -158,10 +158,9 @@ _Noreturn void *socketRecieve() {
                 }else if(readingLogInfo){
                     if(strncmp(recvbuf, "-" ,DEFAULT_BUFLEN) != 0){
                         printf("getlogtime>>%s", recvbuf);
+                        printf("\ncmd>");
+                        readingLogInfo = false;
                     }
-
-                    printf("\ncmd>");
-                    readingLogInfo = false;
                 }
 
             }else if ( recvResult == 0 ){

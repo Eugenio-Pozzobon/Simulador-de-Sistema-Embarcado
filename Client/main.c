@@ -16,8 +16,8 @@
 #define DEFAULT_BUFLEN 256
 #define DEFAULT_PORT "8080"
 
-#define PRINT_TL
-#define PRINT_BT
+//#define PRINT_TL
+//#define PRINT_BT
 
 // Velocidade das threads
 #define CAN_HZ  5
@@ -225,6 +225,7 @@ _Noreturn void *sendBluetoothData() {
             rpm_state = canData[0] > 5500 ? 4 : 0;
             rpm_state = canData[0] > 7500 ? 5 : 0;
             rpm_state = canData[0] > 9500 ? 6 : 7;
+            rpm_state = canData[0] > 11500 ? 7 : 0;
 
             //envia somente a parte inteira
 #ifdef PRINT_BT
@@ -292,9 +293,6 @@ void *socketRecieve() {
     ts.tv_sec  = 0;
     ts.tv_nsec = 100000000;
 
-    char *timedatabuf;
-    timedatabuf = malloc(DEFAULT_BUFLEN);
-
     while (true) {
         pthread_mutex_lock(&connectionMutex);
         if (!sendCmd) {
@@ -302,7 +300,7 @@ void *socketRecieve() {
             recvResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
 
             if (recvResult > 0) {
-                printf("Bytes received: %s\n", recvbuf);
+                //printf("Bytes received: %s\n", recvbuf);
 
                 char *cmd_split = strtok(recvbuf, " "); //divide o comando para pegar só a parte que importa
 
@@ -329,10 +327,11 @@ void *socketRecieve() {
 
                 } else if (strncmp(cmd_split, "getlogtime", DEFAULT_BUFLEN) == 0) {//comando sair do loop
 
+                    char time[20];
                     sendCmd = false;
-                    itoa(newHz, timedatabuf, 10);
-
-                    sendResult = send(ConnectSocket, timedatabuf, DEFAULT_BUFLEN, 0);
+                    itoa(newHz, time, 10);
+                    printf("\n\tsocket_cmd>getlogtime %s", time);
+                    sendResult = send(ConnectSocket, time, DEFAULT_BUFLEN, 0);
 
                 } else if (strncmp(cmd_split, "setlogtime", DEFAULT_BUFLEN) == 0) {//comando sair do loop
 
